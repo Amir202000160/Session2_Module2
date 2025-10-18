@@ -58,10 +58,142 @@ This lab focuses on the fundamental workflow for creating and controlling animat
 * Forgetting to **uncheck "Has Exit Time"** on the transitions, which causes a delay between the code flipping the boolean and the animation actually starting.
 
 # **🧱 Block 3 — C\# Scripting (The Conductor)**
-
 **Goal:** Create the script that implements the infinite game logic: play audio, wait for it to stop, and then toggle the ROTTE boolean.
 
 ### **Editor Steps**
 
 1. Create a new folder named Scripts.  
 2. Create a C\# script named DollBehaviour.cs.
+
+------------------------------------------------------------------------------------------------
+
+# Code for Player Movemrnt #
+
+You’re right—let’s make it dead simple.
+
+## Goal
+
+Track **only the Right Hand Anchor**. If the right hand moves **up or down** by a threshold in **Y**, move the player **forward**. No boxes, no triggers.
+
+---
+
+## 1) Minimal script
+
+Create `RightHandYForward.cs` and paste:
+
+```csharp
+using UnityEngine;
+
+public class RightHandYForward : MonoBehaviour
+{
+    [Header("Assign these in Inspector")]
+    public Transform rightHandAnchor;   // OVRCameraRig/TrackingSpace/RightHandAnchor  (or Interactors/Hand)
+    public Transform player;            // OVRCameraRig/TrackingSpace  (or your Player root)
+
+    [Header("Tuning")]
+    public float detectionRange = 0.15f;   // meters above/below center to start moving
+    public float moveSpeed = 2f;           // meters/second
+    public bool continuous = true;         // true = move every frame while outside threshold
+
+    [Tooltip("Used only if continuous=false (debounce between pulses)")]
+    public float minTriggerInterval = 0.12f;
+
+    private float centerY;
+    private float lastTriggerTime;
+    private CharacterController cc;
+
+    void Awake()
+    {
+        if (player) cc = player.GetComponent<CharacterController>();
+    }
+
+    void Start()
+    {
+        if (rightHandAnchor) centerY = rightHandAnchor.position.y;  // capture neutral height at start
+    }
+
+    void Update()
+    {
+        if (!rightHandAnchor || !player) return;
+
+        float deltaY = rightHandAnchor.position.y - centerY;
+        float abs = Mathf.Abs(deltaY);
+
+        if (continuous)
+        {
+            if (abs >= detectionRange)
+            {
+                MoveForward();
+                // re-center so small up/down keeps you moving
+                centerY = rightHandAnchor.position.y;
+            }
+        }
+        else
+        {
+            if (abs >= detectionRange && (Time.time - lastTriggerTime) >= minTriggerInterval)
+            {
+                MoveForward();
+                lastTriggerTime = Time.time;
+                centerY = rightHandAnchor.position.y;
+            }
+        }
+    }
+
+    public void CalibrateNow()  // call this if you want to recenter during play
+    {
+        if (rightHandAnchor) centerY = rightHandAnchor.position.y;
+    }
+
+    private void MoveForward()
+    {
+        Vector3 f = player.forward; f.y = 0f;
+        if (cc != null) cc.Move(f.normalized * moveSpeed * Time.deltaTime);
+        else            player.position += f.normalized * moveSpeed * Time.deltaTime;
+    }
+}
+```
+
+---
+
+## 2) Hook it up (2 assignments only)
+
+1. **Create Empty** → name `RightHandYDriver` → add `RightHandYForward`.
+2. In the **Inspector**:
+
+   * **Right Hand Anchor** → `OVRCameraRig/TrackingSpace/RightHandAnchor`
+
+     * (If you’re using the Interaction prefab instead, use `RightInteractors/Interactors/Hand`.)
+   * **Player** → `OVRCameraRig/TrackingSpace`  *(this is the safest object to move)*
+
+**Tuning for quick test**
+
+* `detectionRange = 0.15`
+* `moveSpeed = 2`
+* `continuous = true`
+
+Press **Play** → raise or lower your right hand by ~15–20 cm → the rig moves forward.
+
+---
+
+## 3) If it doesn’t move, check only these 3 things
+
+1. **Right hand reference** is the real tracked object:
+
+   * Prefer `TrackingSpace/RightHandAnchor` (or `Interactors/Hand`), **not** a DataSource.
+2. **Player** is `TrackingSpace` (or your CharacterController root).
+3. You’re actually moving the hand **≥ detectionRange** in Y.
+
+---
+
+## (Optional) Want the visible boxes later?
+
+Use your cubes again; the transparency issue is just material setup in URP:
+
+* Shader: **Universal Render Pipeline/Lit** (or **Unlit**)
+* **Surface Type: Transparent**
+* Lower the **Base Color Alpha** (e.g., 0.25)
+* Apply the material to each cube’s **Mesh Renderer > Element 0**.
+
+---
+
+When this right-hand version works, say the word and I’ll flip it to **both hands** in one clean script.
